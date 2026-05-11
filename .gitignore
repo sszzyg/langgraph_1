@@ -17,6 +17,7 @@ env/
 .env
 .env.local
 .env.*.local
+.env.server
 
 # FAISS index (rebuild on server)
 .faiss/
