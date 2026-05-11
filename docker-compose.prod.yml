@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: langraph-api
     ports:
-      - "8000:8000"
+      - "8501:8000"
     environment:
       - KB_DIR=.faiss
       - PYTHONPATH=/app
