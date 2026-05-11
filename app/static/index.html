@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Knowledge Chatbot</title>
+  <style>
+    :root {
+      --panel: rgba(255, 250, 242, 0.92);
+      --panel-strong: #fff9ef;
+      --line: rgba(113, 85, 48, 0.16);
+      --text: #1f1a14;
+      --muted: #6b6257;
+      --accent: #c96f3b;
+      --accent-deep: #8d4b28;
+      --accent-soft: rgba(201, 111, 59, 0.14);
+      --answer: #f7efe3;
+      --user: #1f1a14;
+      --shadow: 0 24px 60px rgba(88, 61, 33, 0.14);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(239, 173, 86, 0.3), transparent 28%),
+        radial-gradient(circle at right 20%, rgba(146, 190, 171, 0.25), transparent 24%),
+        linear-gradient(135deg, #f7f1e4 0%, #efe7d7 45%, #f6efe6 100%);
+    }
+
+    .shell {
+      width: min(1200px, calc(100vw - 32px));
+      min-height: calc(100vh - 32px);
+      margin: 16px auto;
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .sidebar {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .eyebrow {
+      width: fit-content;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .lede, .card p, .meta, .helper {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .card {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(113, 85, 48, 0.1);
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+    }
+
+    .strategy-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .strategy-option {
+      display: grid;
+      gap: 6px;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: transparent;
+      cursor: pointer;
+      transition: 180ms ease;
+    }
+
+    .strategy-option:hover,
+    .strategy-option.active {
+      border-color: rgba(201, 111, 59, 0.5);
+      background: rgba(201, 111, 59, 0.09);
+      transform: translateY(-1px);
+    }
+
+    .strategy-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    .strategy-key {
+      color: var(--accent-deep);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .suggestion {
+      border: 0;
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      border: 1px solid rgba(113, 85, 48, 0.12);
+      transition: 180ms ease;
+    }
+
+    .suggestion:hover {
+      background: var(--accent-soft);
+      border-color: rgba(201, 111, 59, 0.35);
+    }
+
+    .chat {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: calc(100vh - 32px);
+      overflow: hidden;
+    }
+
+    .chat-header {
+      padding: 24px 28px 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      background: linear-gradient(180deg, rgba(255, 249, 239, 0.95), rgba(255, 249, 239, 0.75));
+    }
+
+    .chat-header h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .status {
+      min-width: 116px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: rgba(146, 190, 171, 0.14);
+      color: #28574c;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .messages {
+      padding: 24px 28px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      max-width: min(80ch, 84%);
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid transparent;
+      white-space: pre-wrap;
+      line-height: 1.7;
+      animation: reveal 220ms ease;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: var(--user);
+      color: #fff7ec;
+      border-bottom-right-radius: 6px;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: var(--answer);
+      border-color: rgba(113, 85, 48, 0.1);
+      border-bottom-left-radius: 6px;
+    }
+
+    .message.system {
+      align-self: center;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* ---- Progress Steps ---- */
+    .progress-card {
+      align-self: flex-start;
+      background: var(--answer);
+      border: 1px solid rgba(113, 85, 48, 0.1);
+      border-radius: 18px;
+      border-bottom-left-radius: 6px;
+      padding: 16px 20px;
+      min-width: 260px;
+      animation: reveal 220ms ease;
+    }
+
+    .progress-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 12px;
+    }
+
+    .progress-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 14px;
+      color: var(--muted);
+      transition: color 300ms ease;
+    }
+
+    .progress-step.active { color: var(--accent-deep); font-weight: 600; }
+    .progress-step.done   { color: #28574c; }
+
+    .step-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+      transition: background 300ms ease;
+    }
+
+    .step-dot.pending { background: rgba(113, 85, 48, 0.1); color: var(--muted); }
+    .step-dot.active  { background: var(--accent-soft); color: var(--accent-deep); animation: spin 1s linear infinite; }
+    .step-dot.done    { background: rgba(40, 87, 76, 0.18); color: #28574c; }
+
+    @keyframes spin {
+      0%   { transform: rotate(0deg);   }
+      100% { transform: rotate(360deg); }
+    }
+
+    .meta-grid {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(113, 85, 48, 0.12);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .composer {
+      padding: 18px 20px 20px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 249, 239, 0.78);
+    }
+
+    .composer-shell {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 24px;
+      background: var(--panel-strong);
+      border: 1px solid rgba(113, 85, 48, 0.12);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 72px;
+      max-height: 220px;
+      resize: vertical;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      line-height: 1.6;
+      padding: 8px 10px;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-self: end;
+    }
+
+    .button {
+      border: 0;
+      border-radius: 16px;
+      padding: 12px 16px;
+      font: inherit;
+      cursor: pointer;
+      transition: 180ms ease;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      color: #fff8ef;
+      min-width: 110px;
+    }
+
+    .button.primary:hover { background: var(--accent-deep); }
+
+    .button.ghost {
+      background: rgba(113, 85, 48, 0.08);
+      color: var(--muted);
+    }
+
+    .button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 980px) {
+      .shell {
+        width: min(100vw - 20px, 1200px);
+        min-height: auto;
+        margin: 10px auto;
+        grid-template-columns: 1fr;
+      }
+
+      .chat { min-height: 72vh; }
+      .message { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <aside class="panel sidebar">
+      <section class="brand">
+        <div class="eyebrow">Knowledge Search</div>
+        <h1>Chatbot</h1>
+        <p class="lede">A focused chat page for knowledge-base search and answer generation.</p>
+      </section>
+
+      <section class="card">
+        <h2>Answer Mode</h2>
+        <div class="strategy-list" id="strategyList"></div>
+      </section>
+
+      <section class="card">
+        <h2>Quick Prompts</h2>
+        <div class="suggestions" id="suggestions"></div>
+      </section>
+
+      <section class="card">
+        <h2>Session</h2>
+        <p class="meta" id="sessionMeta">conversation_id: new session</p>
+        <p class="helper">Press Enter to send. Use Shift + Enter for a new line.</p>
+      </section>
+    </aside>
+
+    <section class="panel chat">
+      <header class="chat-header">
+        <div>
+          <h2>Knowledge Search And Answers</h2>
+          <p class="helper">This page sends requests to <code>/v1/tools/langgraph/run</code>.</p>
+        </div>
+        <div class="status" id="statusBadge">Ready</div>
+      </header>
+
+      <div class="messages" id="messages"></div>
+
+      <footer class="composer">
+        <div class="composer-shell">
+          <textarea id="promptInput" placeholder="Ask a question about the knowledge base"></textarea>
+          <div class="actions">
+            <button class="button primary" id="sendButton">Send</button>
+            <button class="button ghost" id="clearButton">Clear</button>
+          </div>
+        </div>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    const state = { strategy: "llm", conversationId: "", loading: false };
+
+    const strategyOptions = [
+      { key: "llm",       name: "AI 智能回答",  description: "检索知识库切片后由大模型综合生成答案。" },
+      { key: "kb",        name: "知识库检索",   description: "直接返回匹配的知识库原文片段。" },
+      { key: "checklist", name: "测试清单",     description: "生成结构化的测试用例清单。" }
+    ];
+
+    const suggestionPrompts = [
+      "总结 NCAP 低速碰撞的关键测试条件",
+      "车道偏离碰撞协议的主要评分项有哪些",
+      "CCR 车对车碰撞测试的参数是什么"
+    ];
+
+    /* ---- step 定义 ---- */
+    const STEP_DEFS = [
+      { id: "routing",     label: "分析问题类型"       },
+      { id: "routed",      label: "确定处理策略"       },
+      { id: "kb_search",   label: "检索知识库"         },
+      { id: "kb_done",     label: "知识库检索完成"     },
+      { id: "checklist",   label: "生成测试清单"       },
+      { id: "llm_call",    label: "调用 AI 大模型"    },
+      { id: "llm_fallback",label: "切换本地知识库回答" },
+    ];
+
+    const strategyList  = document.getElementById("strategyList");
+    const suggestions   = document.getElementById("suggestions");
+    const messages      = document.getElementById("messages");
+    const promptInput   = document.getElementById("promptInput");
+    const sendButton    = document.getElementById("sendButton");
+    const clearButton   = document.getElementById("clearButton");
+    const statusBadge   = document.getElementById("statusBadge");
+    const sessionMeta   = document.getElementById("sessionMeta");
+
+    /* ---- 渲染策略选项 ---- */
+    function renderStrategies() {
+      strategyList.innerHTML = "";
+      strategyOptions.forEach((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "strategy-option" + (state.strategy === option.key ? " active" : "");
+        button.innerHTML = `
+          <span class="strategy-title">
+            <span>${option.name}</span>
+            <span class="strategy-key">${option.key}</span>
+          </span>
+          <span class="meta">${option.description}</span>
+        `;
+        button.addEventListener("click", () => {
+          state.strategy = option.key;
+          renderStrategies();
+        });
+        strategyList.appendChild(button);
+      });
+    }
+
+    function renderSuggestions() {
+      suggestions.innerHTML = "";
+      suggestionPrompts.forEach((text) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "suggestion";
+        button.textContent = text;
+        button.addEventListener("click", () => {
+          promptInput.value = text;
+          promptInput.focus();
+        });
+        suggestions.appendChild(button);
+      });
+    }
+
+    function updateSessionMeta() {
+      sessionMeta.textContent = state.conversationId
+        ? `conversation_id: ${state.conversationId}`
+        : "conversation_id: 新会话";
+    }
+
+    function setLoading(loading) {
+      state.loading = loading;
+      sendButton.disabled = loading;
+      clearButton.disabled = loading;
+      statusBadge.textContent = loading ? "处理中…" : "就绪";
+    }
+
+    function addMessage(role, content, meta = {}) {
+      const wrapper = document.createElement("article");
+      wrapper.className = `message ${role}`;
+
+      const body = document.createElement("div");
+      body.textContent = content;
+      wrapper.appendChild(body);
+
+      const tags = [];
+      if (meta.route) tags.push(`route: ${meta.route}`);
+      if (meta.caseId) tags.push(`case: ${meta.caseId}`);
+      if (typeof meta.coverage === "number" && !Number.isNaN(meta.coverage) && meta.coverage > 0) {
+        tags.push(`coverage: ${(meta.coverage * 100).toFixed(1)}%`);
+      }
+
+      if (tags.length) {
+        const metaGrid = document.createElement("div");
+        metaGrid.className = "meta-grid";
+        tags.forEach((tagText) => {
+          const tag = document.createElement("span");
+          tag.className = "tag";
+          tag.textContent = tagText;
+          metaGrid.appendChild(tag);
+        });
+        wrapper.appendChild(metaGrid);
+      }
+
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+      return wrapper;
+    }
+
+    /* ---- 进度卡片 ---- */
+    function createProgressCard() {
+      const card = document.createElement("div");
+      card.className = "progress-card";
+      card.innerHTML = `<div class="progress-title">⚙ 处理进度</div>`;
+      messages.appendChild(card);
+      messages.scrollTop = messages.scrollHeight;
+      return card;
+    }
+
+    function upsertProgressStep(card, stepId, message, isDone) {
+      let row = card.querySelector(`[data-step="${stepId}"]`);
+      if (!row) {
+        row = document.createElement("div");
+        row.className = "progress-step active";
+        row.dataset.step = stepId;
+        row.innerHTML = `<span class="step-dot active">↻</span><span class="step-label"></span>`;
+        card.appendChild(row);
+      }
+      row.querySelector(".step-label").textContent = message;
+      if (isDone) {
+        row.className = "progress-step done";
+        const dot = row.querySelector(".step-dot");
+        dot.className = "step-dot done";
+        dot.textContent = "✓";
+      }
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    /* ---- SSE 流式发送 ---- */
+    async function sendMessage() {
+      const query = promptInput.value.trim();
+      if (!query || state.loading) return;
+
+      addMessage("user", query);
+      promptInput.value = "";
+      setLoading(true);
+
+      const progressCard = createProgressCard();
+      let lastStepId = null;
+
+      try {
+        const response = await fetch("/v1/tools/langgraph/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            conversation_id: state.conversationId,
+            strategy: state.strategy
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.detail || err.error || `HTTP ${response.status}`);
+        }
+
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let event;
+            try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (event.type === "error") {
+              throw new Error(event.message || "未知错误");
+            }
+
+            if (event.type === "answer") {
+              /* 标记最后一步完成 */
+              if (lastStepId) upsertProgressStep(progressCard, lastStepId, progressCard.querySelector(`[data-step="${lastStepId}"] .step-label`)?.textContent ?? "", true);
+              progressCard.remove();
+
+              state.conversationId = event.conversation_id || state.conversationId;
+              updateSessionMeta();
+              addMessage("assistant", event.answer || "（无内容返回）", {
+                route:    event.route,
+                caseId:   event.case_id,
+                coverage: event.checklist_coverage
+              });
+            } else {
+              /* 进度步骤：将上一步标记为完成，新步骤标记为 active */
+              if (lastStepId && lastStepId !== event.step) {
+                const prevLabel = progressCard.querySelector(`[data-step="${lastStepId}"] .step-label`)?.textContent ?? "";
+                upsertProgressStep(progressCard, lastStepId, prevLabel, true);
+              }
+              upsertProgressStep(progressCard, event.step, event.message, false);
+              lastStepId = event.step;
+            }
+          }
+        }
+      } catch (error) {
+        progressCard.remove();
+        addMessage("system", `请求失败：${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    sendButton.addEventListener("click", sendMessage);
+    clearButton.addEventListener("click", () => {
+      if (state.loading) return;
+      state.conversationId = "";
+      updateSessionMeta();
+      messages.innerHTML = "";
+      addMessage("system", "已开始新的对话。");
+    });
+
+    promptInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+
+    renderStrategies();
+    renderSuggestions();
+    updateSessionMeta();
+    addMessage("system", "欢迎使用知识库问答系统。请选择模式并输入问题。");
+  </script>
+</body>
+</html>

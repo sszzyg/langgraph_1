@@ -1,0 +1,13 @@
+services:
+  chroma:
+    image: chromadb/chroma:0.5.5
+    container_name: langraph-chroma
+    ports:
+      - "8001:8000"
+    environment:
+      - ALLOW_RESET=true
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    volumes:
+      - ./.chroma:/chroma/chroma
+    restart: unless-stopped
