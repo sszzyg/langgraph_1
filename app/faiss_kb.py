@@ -1,13 +1,15 @@
+import hashlib
+import json
 import os
 from pathlib import Path
-from typing import List, Dict
 import re
+from typing import Dict, Iterable, List
 
 import faiss
 import numpy as np
 import requests
 
-from app.config import get_siliconflow_settings
+from app.config import get_rag_settings, get_siliconflow_settings
 
 
 class FAISSKnowledgeBase:
@@ -15,15 +17,19 @@ class FAISSKnowledgeBase:
     Lightweight, no external service required, stores vectors as local files.
     """
 
-    def __init__(self, model_name: str = "Qwen/Qwen3-VL-Embedding-8B", collection_name: str = "ncap_library"):
-        self.model_name = model_name
-        self.collection_name = collection_name
-        self.kb_dir = Path(os.getenv("KB_DIR", ".faiss"))
-        self.kb_dir.mkdir(exist_ok=True)
+    def __init__(self, model_name: str | None = None, collection_name: str | None = None):
+        rag_settings = get_rag_settings()
+
+        default_embedding_model = os.getenv("SILICONFLOW_EMBEDDING_MODEL", "Qwen/Qwen3-VL-Embedding-8B")
+        self.model_name = model_name or default_embedding_model.strip() or "Qwen/Qwen3-VL-Embedding-8B"
+        self.collection_name = collection_name or rag_settings.collection
+        self.kb_dir = Path(rag_settings.kb_dir)
+        self.kb_dir.mkdir(parents=True, exist_ok=True)
 
         # Path to FAISS index and metadata
-        self.index_path = self.kb_dir / f"{collection_name}.faiss"
-        self.metadata_path = self.kb_dir / f"{collection_name}_metadata.jsonl"
+        self.index_path = self.kb_dir / f"{self.collection_name}.faiss"
+        self.metadata_path = self.kb_dir / f"{self.collection_name}_metadata.jsonl"
+        self.manifest_path = self.kb_dir / f"{self.collection_name}_manifest.json"
 
         # Load or create index
         self._load_index()
@@ -34,7 +40,6 @@ class FAISSKnowledgeBase:
             self.index = faiss.read_index(str(self.index_path))
             self.embedding_dim = self.index.d
             # Load metadata
-            import json
             self.metadata = []
             if self.metadata_path.exists():
                 with open(self.metadata_path, "r", encoding="utf-8") as f:
@@ -52,6 +57,12 @@ class FAISSKnowledgeBase:
             self.embedding_dim = embedding_dim
             # Flat L2 index is lightweight and CPU-friendly
             self.index = faiss.IndexFlatL2(self.embedding_dim)
+            return
+
+        if self.index.d != embedding_dim:
+            raise ValueError(
+                f"Embedding dimension changed from {self.index.d} to {embedding_dim}; rebuild the index."
+            )
 
     def _save_index(self) -> None:
         """Save FAISS index and metadata to disk."""
@@ -59,10 +70,18 @@ class FAISSKnowledgeBase:
             return
 
         faiss.write_index(self.index, str(self.index_path))
-        import json
         with open(self.metadata_path, "w", encoding="utf-8") as f:
             for meta in self.metadata:
                 f.write(json.dumps(meta, ensure_ascii=False) + "\n")
+
+    def reset(self) -> None:
+        """Remove the current FAISS index and metadata from memory and disk."""
+        self.index = None
+        self.embedding_dim = 0
+        self.metadata = []
+        for path in (self.index_path, self.metadata_path, self.manifest_path):
+            if path.exists():
+                path.unlink()
 
     def _embed(self, text: str) -> np.ndarray:
         settings = get_siliconflow_settings()
@@ -168,35 +187,69 @@ class FAISSKnowledgeBase:
 
         return selected
 
-    def _split_markdown(self, text: str, chunk_size: int = 500, overlap: int = 80) -> List[str]:
-        """Split markdown text into overlapping chunks."""
-        chunks = []
-        lines = text.split("\n")
-        current_chunk = []
-        current_size = 0
+    @staticmethod
+    def _window_text(text: str, chunk_size: int, overlap: int) -> List[str]:
+        chunks: List[str] = []
+        start = 0
+        text = text.strip()
+        while start < len(text):
+            end = min(start + chunk_size, len(text))
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= len(text):
+                break
+            start = max(0, end - overlap)
+        return chunks
+
+    def _split_markdown(self, text: str, chunk_size: int = 900, overlap: int = 120) -> List[str]:
+        """Split markdown into heading-aware overlapping chunks."""
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalized.split("\n")
+        sections: List[str] = []
+        current: List[str] = []
 
         for line in lines:
-            current_chunk.append(line)
-            current_size += len(line) + 1  # +1 for newline
-            if current_size >= chunk_size:
-                chunk_text = "\n".join(current_chunk).strip()
-                if chunk_text:
-                    chunks.append(chunk_text)
-                # Keep last lines for overlap
-                overlap_lines = int(overlap / 30) if overlap > 0 else 0
-                current_chunk = current_chunk[-overlap_lines:] if overlap_lines > 0 else []
-                current_size = sum(len(line) + 1 for line in current_chunk)
+            stripped = line.strip()
+            if stripped.startswith("#") and current:
+                section = "\n".join(current).strip()
+                if section:
+                    sections.append(section)
+                current = [line]
+                continue
+            current.append(line)
 
-        if current_chunk:
-            chunk_text = "\n".join(current_chunk).strip()
-            if chunk_text:
-                chunks.append(chunk_text)
+        if current:
+            section = "\n".join(current).strip()
+            if section:
+                sections.append(section)
+
+        chunks: List[str] = []
+        for section in sections:
+            if len(section) <= chunk_size:
+                chunks.append(section)
+                continue
+            chunks.extend(self._window_text(section, chunk_size, overlap))
 
         return chunks
 
-    def index_document(self, text: str, source: str, chunk_size: int = 500, overlap: int = 80) -> None:
+    @staticmethod
+    def _iter_markdown_files(library_dir: Path, recursive: bool = True) -> Iterable[Path]:
+        pattern = "**/*.md" if recursive else "*.md"
+        return sorted(path for path in library_dir.glob(pattern) if path.is_file())
+
+    def index_document(
+        self,
+        text: str,
+        source: str,
+        chunk_size: int = 900,
+        overlap: int = 120,
+        path: str = "",
+        save: bool = True,
+    ) -> int:
         """Index a single document."""
         chunks = self._split_markdown(text, chunk_size, overlap)
+        digest = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
         for chunk_idx, chunk in enumerate(chunks):
             embedding = self._embed(chunk)
@@ -205,44 +258,127 @@ class FAISSKnowledgeBase:
             # Store metadata
             self.metadata.append({
                 "source": source,
+                "path": path or source,
                 "chunk_index": chunk_idx,
                 "text": chunk[:200],
                 "content": chunk,
+                "content_sha256": digest,
             })
 
-        self._save_index()
+        if save:
+            self._save_index()
 
-    def index_library(self, library_dir: str = "app/library", chunk_size: int = 500, overlap: int = 80) -> Dict:
+        return len(chunks)
+
+    def index_library(
+        self,
+        library_dir: str | None = None,
+        chunk_size: int | None = None,
+        overlap: int | None = None,
+        reset: bool = True,
+        recursive: bool = True,
+    ) -> Dict:
         """Index all markdown files from a directory."""
-        lib_path = Path(library_dir)
-        if not lib_path.exists():
-            return {"status": "error", "message": f"Library directory {library_dir} not found"}
+        rag_settings = get_rag_settings()
+        target_dir = library_dir or rag_settings.library_dir
+        target_chunk_size = chunk_size or rag_settings.chunk_size
+        target_overlap = overlap if overlap is not None else rag_settings.chunk_overlap
 
-        markdown_files = list(lib_path.glob("*.md"))
+        lib_path = Path(target_dir)
+        if not lib_path.exists():
+            return {"status": "error", "message": f"Library directory {target_dir} not found"}
+
+        if reset:
+            self.reset()
+
+        markdown_files = list(self._iter_markdown_files(lib_path, recursive=recursive))
         total_chunks = 0
+        indexed_files = []
 
         for md_file in markdown_files:
-            with open(md_file, "r", encoding="utf-8") as f:
+            with open(md_file, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
-            chunks = self._split_markdown(text, chunk_size, overlap)
-            self.index_document(text, md_file.name, chunk_size, overlap)
-            total_chunks += len(chunks)
+            rel_path = str(md_file.relative_to(lib_path)).replace("\\", "/")
+            chunk_count = self.index_document(
+                text,
+                source=rel_path,
+                chunk_size=target_chunk_size,
+                overlap=target_overlap,
+                path=str(md_file),
+                save=False,
+            )
+            total_chunks += chunk_count
+            indexed_files.append({"source": rel_path, "chunks": chunk_count})
+
+        self._save_index()
+        self._save_manifest(
+            library_dir=str(lib_path),
+            chunk_size=target_chunk_size,
+            overlap=target_overlap,
+            recursive=recursive,
+            files=indexed_files,
+        )
 
         return {
             "status": "ok",
             "files_indexed": len(markdown_files),
             "total_chunks": total_chunks,
             "collection": self.collection_name,
+            "library_dir": str(lib_path),
+            "chunk_size": target_chunk_size,
+            "chunk_overlap": target_overlap,
         }
 
-    def query(self, question: str, top_k: int = 4) -> List[Dict]:
+    def _save_manifest(
+        self,
+        library_dir: str,
+        chunk_size: int,
+        overlap: int,
+        recursive: bool,
+        files: List[Dict],
+    ) -> None:
+        manifest = {
+            "collection": self.collection_name,
+            "embedding_model": self.model_name,
+            "library_dir": library_dir,
+            "chunk_size": chunk_size,
+            "chunk_overlap": overlap,
+            "recursive": recursive,
+            "files_indexed": len(files),
+            "total_chunks": len(self.metadata),
+            "files": files,
+        }
+        with open(self.manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    def status(self) -> Dict:
+        manifest = {}
+        if self.manifest_path.exists():
+            with open(self.manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+
+        index_total = int(self.index.ntotal) if self.index is not None else 0
+        return {
+            "collection": self.collection_name,
+            "index_path": str(self.index_path),
+            "metadata_path": str(self.metadata_path),
+            "indexed": self.index is not None and index_total > 0,
+            "vectors": index_total,
+            "metadata_rows": len(self.metadata),
+            "embedding_dim": self.embedding_dim,
+            "manifest": manifest,
+        }
+
+    def query(self, question: str, top_k: int | None = None) -> List[Dict]:
         """Query the knowledge base and return top-k results."""
         if self.index is None or self.index.ntotal == 0:
             return []
 
+        rag_settings = get_rag_settings()
+        result_count = top_k or rag_settings.top_k
         query_embedding = self._embed(question)
 
-        candidate_k = max(top_k * 8, top_k)
+        candidate_k = max(result_count * 8, result_count)
         candidate_k = min(candidate_k, int(self.index.ntotal))
 
         # Search a larger candidate pool first, then rerank.
@@ -280,14 +416,14 @@ class FAISSKnowledgeBase:
             return []
 
         # Keep all obviously relevant candidates, otherwise fallback to top by score.
-        filtered = [c for c in candidates if c.get("score", 0.0) >= 0.38]
+        filtered = [c for c in candidates if c.get("score", 0.0) >= rag_settings.min_score]
         if not filtered:
-            filtered = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[: max(top_k, 1)]
+            filtered = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[: max(result_count, 1)]
 
         # Diversify near-duplicate chunks while preserving relevance.
-        results = self._mmr_select(filtered, top_k=top_k)
+        results = self._mmr_select(filtered, top_k=result_count)
         if not results:
-            results = sorted(filtered, key=lambda x: x.get("score", 0.0), reverse=True)[:top_k]
+            results = sorted(filtered, key=lambda x: x.get("score", 0.0), reverse=True)[:result_count]
 
         # Cleanup non-serializable runtime field.
         for hit in results:
