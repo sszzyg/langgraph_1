@@ -47,6 +47,17 @@ class SiliconFlowSettings:
     timeout_seconds: int = 60
 
 
+@dataclass(frozen=True)
+class RagSettings:
+    kb_dir: str
+    library_dir: str
+    collection: str
+    top_k: int
+    chunk_size: int
+    chunk_overlap: int
+    min_score: float
+
+
 def get_settings() -> DifySettings:
     base_url = os.getenv("DIFY_BASE_URL", "").strip().rstrip("/")
     api_key = os.getenv("DIFY_API_KEY", "").strip()
@@ -182,4 +193,47 @@ def get_siliconflow_settings() -> SiliconFlowSettings:
         rerank_model=rerank_model,
         rerank_enabled=rerank_enabled,
         timeout_seconds=timeout_seconds,
+    )
+
+
+def get_rag_settings() -> RagSettings:
+    kb_dir = os.getenv("KB_DIR", ".faiss").strip() or ".faiss"
+    library_dir = os.getenv("KB_LIBRARY_DIR", "app/library").strip() or "app/library"
+    collection = os.getenv("KB_COLLECTION", "ncap_library").strip() or "ncap_library"
+
+    top_k_raw = os.getenv("KB_TOP_K", "4").strip()
+    try:
+        top_k = max(1, int(top_k_raw))
+    except ValueError:
+        top_k = 4
+
+    chunk_size_raw = os.getenv("KB_CHUNK_SIZE", "900").strip()
+    try:
+        chunk_size = max(200, int(chunk_size_raw))
+    except ValueError:
+        chunk_size = 900
+
+    overlap_raw = os.getenv("KB_CHUNK_OVERLAP", "120").strip()
+    try:
+        chunk_overlap = max(0, int(overlap_raw))
+    except ValueError:
+        chunk_overlap = 120
+
+    if chunk_overlap >= chunk_size:
+        chunk_overlap = max(0, chunk_size // 5)
+
+    min_score_raw = os.getenv("KB_MIN_SCORE", "0.35").strip()
+    try:
+        min_score = float(min_score_raw)
+    except ValueError:
+        min_score = 0.35
+
+    return RagSettings(
+        kb_dir=kb_dir,
+        library_dir=library_dir,
+        collection=collection,
+        top_k=top_k,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        min_score=min_score,
     )
